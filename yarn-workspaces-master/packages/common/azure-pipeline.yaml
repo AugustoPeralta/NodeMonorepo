@@ -1,0 +1,85 @@
+# File: azure-pipelines.yaml
+
+name: $(Date:yyyyMMdd)$(Rev:.r)
+
+variables:
+  - name: working-dir
+    value: 'packages/common/'
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include: # Include!
+      - '$(working-dir)/*' # or 'service-b/*'
+pr:
+  branches:
+    include:
+      - main
+  paths:
+    include: # Include!
+      - '$(working-dir)/*' # or 'service-b/*'
+
+resources:
+  - repo: self
+
+#variables:
+#  - template: variables.yaml
+
+stages:
+  - stage: Tag
+    displayName: Semantic release
+    pool:
+        vmImage: 'vs2017-win2016'
+    jobs:
+      - job: release
+        displayName: semantic release
+        variables:
+          _GITHUB_TOKEN: $(GitHubToken)
+          _NPM_TOKEN: $(NpmToken)
+        steps:
+          - script:  >
+              npx 
+              -p semantic-release
+              -p @semantic-release/changelog
+              -p @semantic-release/git
+              -p semantic-release-ado
+              semantic-release
+            displayName: 'Tag release'
+            env: { GH_TOKEN: $(_GITHUB_TOKEN), NPM_TOKEN: $(_NPM_TOKEN) }
+            workingDirectory: $(working-dir)
+          - script: echo $(nextRelease)
+          - powershell: |
+              echo "##vso[task.setvariable variable=versionNumber;isOutput=true]$(nextRelease)"
+            name: setOutputVar
+
+  - stage: CI
+    displayName: Continuous Integration
+    dependsOn: Tag
+    variables:
+      _NEXT_RELEASE_TAG: $[ stageDependencies.Tag.release.outputs['setOutputVar.versionNumber'] ]
+    pool:
+        name: Hosted VS2017
+        demands: npm
+    jobs:
+      - job: var
+        displayName: check variable
+        steps:
+          - script: echo $(_NEXT_RELEASE_TAG)
+#      - template: ./build.yaml
+#        parameters:
+#          tag: $(_NEXT_RELEASE_TAG)
+      
+#  - stage: CD
+#    displayName: Continuous Deployment
+#    condition: 
+#    jobs:
+#      - template: ./deploy.yaml
+#        parameters:
+#          buildLocation: $(Pipeline.Workspace)/**/*.zip
+#          resourceGroupName: $(serviceConnectionRG)
+#          azureSubscription: $(serviceConnection)
+#          environment: '$(pushBranch)'
+#          appName: '$(appName)'
+#          notifyUsers: '$(notifyUsers)'
